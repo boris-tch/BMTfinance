@@ -13,7 +13,7 @@ export default function Home() {
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">💰 Free Finance Tracker</h1>
+        <h1 className="text-4xl font-bold mb-4">Finance Tracker</h1>
         <p className="mb-8">Track your money. 100% free.</p>
         <button 
           onClick={handleLogin}
