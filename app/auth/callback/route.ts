@@ -13,4 +13,4 @@ export async function GET(request: Request) {
   
   // Redirect to dashboard
   return NextResponse.redirect(`${requestUrl.origin}/dashboard`)
-}
+} 
