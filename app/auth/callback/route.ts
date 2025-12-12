@@ -1,48 +1,17 @@
-// app/auth/callback/route.ts
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+// app/auth/callback/route.ts - ADD LOGGING
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
+  console.log('🎯 CALLBACK ROUTE HIT!')
+  console.log('Full URL:', request.url)
+  
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
-
-  if (code) {
-    const cookieStore = await cookies()
-
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value
-          },
-          set(name: string, value: string, options: CookieOptions) {
-            try {
-              cookieStore.set({ name, value, ...options })
-            } catch (error) {
-              // Handle error
-            }
-          },
-          remove(name: string, options: CookieOptions) {
-            try {
-              cookieStore.set({ name, value: '', ...options })
-            } catch (error) {
-              // Handle error
-            }
-          },
-        },
-      }
-    )
-
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-
-    if (error) {
-      console.error('Auth error:', error)
-      return NextResponse.redirect(`${requestUrl.origin}/?error=auth_failed`)
-    }
-  }
-
+  const error = requestUrl.searchParams.get('error')
+  
+  console.log('Code exists:', !!code)
+  console.log('Error:', error)
+  
+  // Just redirect for now
   return NextResponse.redirect(`${requestUrl.origin}/dashboard`)
 }
