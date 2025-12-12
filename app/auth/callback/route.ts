@@ -1,17 +1,38 @@
-// app/auth/callback/route.ts - ADD LOGGING
+// app/auth/callback/route.ts
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
-  console.log('🎯 CALLBACK ROUTE HIT!')
-  console.log('Full URL:', request.url)
-  
   const requestUrl = new URL(request.url)
-  const code = requestUrl.searchParams.get('code')
+  
+  console.log('🔗 Callback hit! URL:', requestUrl.toString())
+  
+  // Check for error
   const error = requestUrl.searchParams.get('error')
+  if (error) {
+    console.error('OAuth error:', error)
+    return NextResponse.redirect(`${requestUrl.origin}/?error=${error}`)
+  }
   
-  console.log('Code exists:', !!code)
-  console.log('Error:', error)
+  // Check for access_token (Supabase redirects with this)
+  const accessToken = requestUrl.searchParams.get('access_token')
+  const refreshToken = requestUrl.searchParams.get('refresh_token')
   
-  // Just redirect for now
+  if (accessToken && refreshToken) {
+    console.log('✅ Got tokens from Supabase redirect')
+    // Store tokens (in real app, you'd set cookies)
+    // For now, just redirect to dashboard
+    return NextResponse.redirect(`${requestUrl.origin}/dashboard`)
+  }
+  
+  // If no tokens, maybe we got a code
+  const code = requestUrl.searchParams.get('code')
+  if (code) {
+    console.log('📦 Got code, need to exchange')
+    // You'd exchange code for tokens here
+    // For simplicity, redirect to dashboard and let client handle it
+    return NextResponse.redirect(`${requestUrl.origin}/dashboard?code=${code}`)
+  }
+  
+  console.log('⚠️ No tokens or code found')
   return NextResponse.redirect(`${requestUrl.origin}/dashboard`)
 }

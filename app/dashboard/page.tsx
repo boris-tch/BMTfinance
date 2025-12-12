@@ -1,127 +1,92 @@
+// app/dashboard/page.tsx - UPDATED
 'use client'
 
 import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [debug, setDebug] = useState<string[]>([])
+  const [message, setMessage] = useState('')
   const supabase = createClient()
   const router = useRouter()
-  
-  const addDebug = (msg: string) => {
-    setDebug(prev => [...prev, `${new Date().toISOString()}: ${msg}`])
-  }
+  const searchParams = useSearchParams()
   
   useEffect(() => {
-    const checkAuth = async () => {
-      addDebug('Starting auth check...')
+    const handleAuth = async () => {
+      // Check URL for tokens (from Supabase redirect)
+      const accessToken = searchParams.get('access_token')
+      const refreshToken = searchParams.get('refresh_token')
+      const code = searchParams.get('code')
       
-      const { data: { user }, error } = await supabase.auth.getUser()
+      console.log('Dashboard auth check:', { accessToken, refreshToken, code })
       
-      addDebug(`Auth result: ${user ? 'User found' : 'No user'}`)
-      addDebug(`Error: ${error ? error.message : 'None'}`)
-      
-      console.log('User:', user)
-      console.log('Error:', error)
-      
-      setUser(user)
-      setLoading(false)
-      
-      if (!user) {
-        addDebug('No user found, redirecting to login')
-        router.push('/')
+      if (accessToken && refreshToken) {
+        setMessage('Setting session from URL tokens...')
+        // Supabase should handle this automatically with detectSessionInUrl
+        // Clear tokens from URL
+        router.replace('/dashboard')
       }
-    }
-    
-    checkAuth()
-    
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        addDebug(`Auth state change: ${event}`)
-        console.log('Auth event:', event, session)
-        
-        if (event === 'SIGNED_IN') {
-          setUser(session?.user)
-        } else if (event === 'SIGNED_OUT') {
-          setUser(null)
-          router.push('/')
+      
+      if (code) {
+        setMessage('Exchanging code for session...')
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        if (error) {
+          setMessage(`Error: ${error.message}`)
+        } else {
+          setMessage('Code exchanged!')
+          router.replace('/dashboard')
         }
       }
-    )
-    
-    return () => {
-      subscription.unsubscribe()
+      
+      // Check current auth state
+      const { data: { user } } = await supabase.auth.getUser()
+      console.log('Current user:', user)
+      
+      setUser(user)
+      
+      if (!user) {
+        setMessage('Not authenticated')
+        // Optional: redirect after delay
+        // setTimeout(() => router.push('/'), 2000)
+      } else {
+        setMessage(`Welcome ${user.email}!`)
+      }
     }
+    
+    handleAuth()
   }, [])
-  
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p>Checking authentication...</p>
-        </div>
-      </div>
-    )
-  }
   
   return (
     <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8">Dashboard</h1>
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
+        <p className="text-gray-600 mb-4">{message}</p>
         
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white rounded-xl shadow p-6">
-            <h2 className="text-2xl font-bold mb-4">
-              {user ? '🎉 Welcome!' : '❌ Not logged in'}
-            </h2>
-            
-            {user ? (
-              <>
-                <p className="text-gray-600 mb-4">
-                  Email: <strong>{user.email}</strong>
-                </p>
-                <button
-                  onClick={async () => {
-                    await supabase.auth.signOut()
-                    router.push('/')
-                  }}
-                  className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
-                >
-                  Logout
-                </button>
-              </>
-            ) : (
-              <p className="text-gray-600">You should be redirected to login...</p>
-            )}
-          </div>
-          
-          <div className="bg-gray-100 rounded-xl shadow p-6">
-            <h3 className="font-semibold mb-4">Debug Info</h3>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {debug.map((msg, i) => (
-                <div key={i} className="text-xs font-mono p-2 bg-gray-200 rounded">
-                  {msg}
-                </div>
-              ))}
-            </div>
+        {user ? (
+          <div className="bg-white rounded-xl shadow p-6">
+            <p className="text-green-600 mb-4">✅ Logged in as: {user.email}</p>
             <button
-              onClick={() => {
-                supabase.auth.getUser().then(({ data }) => {
-                  console.log('Manual check:', data)
-                  addDebug(`Manual check: ${data.user ? 'User found' : 'No user'}`)
-                })
+              onClick={async () => {
+                await supabase.auth.signOut()
+                router.push('/')
               }}
-              className="mt-4 px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm"
+              className="px-4 py-2 bg-red-100 text-red-700 rounded"
             >
-              Check Auth Manually
+              Logout
             </button>
           </div>
-        </div>
+        ) : (
+          <div className="bg-white rounded-xl shadow p-6">
+            <p className="text-red-600 mb-4">❌ Not logged in</p>
+            <button
+              onClick={() => router.push('/')}
+              className="px-4 py-2 bg-blue-600 text-white rounded"
+            >
+              Go to Login
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
