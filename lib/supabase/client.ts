@@ -9,7 +9,6 @@ export const createClient = () =>
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true, // ← CRITICAL!
-        storage: localStorage,
         storageKey: 'supabase-auth',
       }
     }
