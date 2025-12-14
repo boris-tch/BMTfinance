@@ -27,7 +27,7 @@ export default function Home() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `${window.location.origin}/auth/callback`,    
           queryParams: {
             access_type: 'offline',
             prompt: 'consent'
@@ -46,7 +46,7 @@ export default function Home() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="max-w-md w-full p-8 bg-white rounded-lg shadow text-center">
-        <h1 className="text-3xl font-bold mb-2">BMT Finance</h1>
+        <h1 className="text-3xl font-bold mb-2">BMT</h1>
         <p className="text-gray-600 mb-8">Login with Google</p>
         
         {error && (

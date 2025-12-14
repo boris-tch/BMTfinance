@@ -1,20 +1,54 @@
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
-  // Get the URL
   const requestUrl = new URL(request.url)
-  
-  // Get the code from Supabase redirect
   const code = requestUrl.searchParams.get('code')
   
+  console.log('Callback hit with code:', code ? 'Yes' : 'No')
+  
   if (code) {
-    console.log('✅ Got auth code from Supabase')
-    
-    // Redirect to a page that will exchange the code
-    // The client will handle the exchange
-    return NextResponse.redirect(`${requestUrl.origin}/auth/exchange?code=${code}`)
+    try {
+      const cookieStore = await cookies()
+      
+      const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            get(name: string) {
+              return cookieStore.get(name)?.value
+            },
+            set(name: string, value: string, options: any) {
+              cookieStore.set({ name, value, ...options })
+            },
+            remove(name: string, options: any) {
+              cookieStore.set({ name, value: '', ...options })
+            },
+          },
+        }
+      )
+      
+      const { error } = await supabase.auth.exchangeCodeForSession(code)
+      
+      if (error) {
+        console.error('Exchange error:', error)
+        return NextResponse.redirect(
+          `${requestUrl.origin}/?error=${encodeURIComponent(error.message)}`
+        )
+      }
+      
+      console.log('✅ Server-side exchange successful')
+      return NextResponse.redirect(`${requestUrl.origin}/dashboard`)
+      
+    } catch (error: any) {
+      console.error('Server error:', error)
+      return NextResponse.redirect(
+        `${requestUrl.origin}/?error=${encodeURIComponent(error.message)}`
+      )
+    }
   }
   
-  // If no code, something went wrong
   return NextResponse.redirect(`${requestUrl.origin}/?error=no_code`)
 }
