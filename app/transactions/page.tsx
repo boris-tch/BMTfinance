@@ -3,7 +3,19 @@
 import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Calendar, Tag, FileText, DollarSign } from 'lucide-react'
+import { 
+  Calendar, 
+  Tag, 
+  FileText, 
+  DollarSign,
+  Filter,
+  Download,
+  ChevronLeft,
+  Trash2,
+  Plus,
+  TrendingUp,
+  TrendingDown
+} from 'lucide-react'
 
 type Transaction = {
   id: string
@@ -32,6 +44,7 @@ export default function TransactionsPage() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [activeFilter, setActiveFilter] = useState<'all' | 'income' | 'expense'>('all')
   
   const supabase = createClient()
   const router = useRouter()
@@ -69,11 +82,11 @@ export default function TransactionsPage() {
       .select('*')
       .eq('user_id', user.id)
       .order('date', { ascending: false })
-      .limit(50)
+      .limit(100)
     
     if (error) {
       console.error('Error loading transactions:', error)
-      setMessage('Error loading transactions')
+      setMessage('ERROR: Failed to load transactions')
     } else if (data) {
       setTransactions(data)
     }
@@ -91,7 +104,7 @@ export default function TransactionsPage() {
     }
     
     if (!amount || parseFloat(amount) <= 0) {
-      setMessage('Please enter a valid amount')
+      setMessage('ERROR: Please enter a valid amount')
       setLoading(false)
       return
     }
@@ -109,9 +122,9 @@ export default function TransactionsPage() {
     
     if (error) {
       console.error('Error saving transaction:', error)
-      setMessage('Error saving transaction')
+      setMessage('ERROR: Failed to save transaction')
     } else {
-      setMessage('✅ Transaction added successfully!')
+      setMessage('SUCCESS: Transaction recorded')
       
       // Reset form
       setAmount('')
@@ -137,19 +150,23 @@ export default function TransactionsPage() {
     
     if (error) {
       console.error('Error deleting transaction:', error)
-      setMessage('Error deleting transaction')
+      setMessage('ERROR: Failed to delete transaction')
     } else {
-      setMessage('🗑️ Transaction deleted')
+      setMessage('DELETED: Transaction removed')
       loadTransactions()
     }
   }
-  
+
   // Calculate totals
-  const totalIncome = transactions
+  const filteredTransactions = transactions.filter(t => 
+    activeFilter === 'all' || t.type === activeFilter
+  )
+  
+  const totalIncome = filteredTransactions
     .filter(t => t.type === 'income')
     .reduce((sum, t) => sum + t.amount, 0)
   
-  const totalExpenses = transactions
+  const totalExpenses = filteredTransactions
     .filter(t => t.type === 'expense')
     .reduce((sum, t) => sum + t.amount, 0)
   
@@ -160,110 +177,206 @@ export default function TransactionsPage() {
     cat.type === 'both' || cat.type === type
   )
   
+  // Format date for display
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-xl font-bold">💳 Transactions</h1>
-            </div>
-            <div className="flex items-center space-x-4">
+    <div className="min-h-screen bg-[#0a0a0a] text-gray-100">
+      {/* Header */}
+      <div className="border-b border-[#222222]">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-4">
               <button
                 onClick={() => router.push('/dashboard')}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+                className="flex items-center gap-2 text-gray-400 hover:text-gray-300 transition-colors"
               >
-                ← Dashboard
+                <ChevronLeft className="w-4 h-4" />
+                <span className="text-sm">DASHBOARD</span>
+              </button>
+              <div className="w-px h-6 bg-[#222222]"></div>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-[#00ff8f] rounded-md"></div>
+                <div>
+                  <h1 className="text-lg font-bold tracking-tight">TRANSACTIONS</h1>
+                  <p className="text-xs text-gray-500 font-mono">FINANCIAL ACTIVITY LOG</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <button className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-[#333333] rounded-lg hover:bg-[#222222] transition-colors text-sm">
+                <Download className="w-4 h-4" />
+                EXPORT
               </button>
             </div>
           </div>
         </div>
-      </nav>
-      
-      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+      </div>
+
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Stats Row */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <div className="bg-[#111111] border border-[#222222] rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-gray-500">BALANCE</span>
+              <div className={`w-2 h-2 rounded-full ${balance >= 0 ? 'bg-[#00ff8f]' : 'bg-[#ff6666]'}`}></div>
+            </div>
+            <div className={`text-2xl font-bold font-mono ${balance >= 0 ? 'text-[#00ff8f]' : 'text-[#ff6666]'}`}>
+              ${balance.toFixed(2)}
+            </div>
+          </div>
+          
+          <div className="bg-[#111111] border border-[#222222] rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-gray-500">INCOME</span>
+              <TrendingUp className="w-4 h-4 text-[#00ff8f]" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-[#00ff8f]">
+              ${totalIncome.toFixed(2)}
+            </div>
+          </div>
+          
+          <div className="bg-[#111111] border border-[#222222] rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-gray-500">EXPENSES</span>
+              <TrendingDown className="w-4 h-4 text-[#ff6666]" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-[#ff6666]">
+              ${totalExpenses.toFixed(2)}
+            </div>
+          </div>
+          
+          <div className="bg-[#111111] border border-[#222222] rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-gray-500">TRANSACTIONS</span>
+              <span className="text-xs text-gray-500">{filteredTransactions.length}</span>
+            </div>
+            <div className="text-2xl font-bold font-mono text-gray-300">
+              {filteredTransactions.length}
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column - Add Transaction & Summary */}
-          <div className="lg:col-span-2 space-y-6">
+          {/* Left Column - Form */}
+          <div className="lg:col-span-2">
             {/* Add Transaction Form */}
-            <div className="bg-white rounded-xl shadow p-6">
-              <h2 className="text-xl font-semibold mb-6">Add New Transaction</h2>
+            <div className="bg-[#111111] border border-[#222222] rounded-lg p-6 mb-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-lg font-bold">NEW TRANSACTION</h2>
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm text-gray-500">ENTRY FORM</span>
+                </div>
+              </div>
               
               {message && (
-                <div className={`mb-4 p-3 rounded-lg ${message.includes('✅') ? 'bg-green-50 text-green-800' : message.includes('🗑️') ? 'bg-yellow-50 text-yellow-800' : 'bg-red-50 text-red-800'}`}>
+                <div className={`mb-6 p-3 rounded border text-sm font-mono ${
+                  message.includes('SUCCESS') ? 'bg-[#00ff8f]/10 border-[#00ff8f]/30 text-[#00ff8f]' :
+                  message.includes('ERROR') ? 'bg-[#ff6666]/10 border-[#ff6666]/30 text-[#ff6666]' :
+                  'bg-[#ffcc00]/10 border-[#ffcc00]/30 text-[#ffcc00]'
+                }`}>
                   {message}
                 </div>
               )}
               
               <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Type Toggle */}
-                <div className="flex space-x-4">
+                {/* Type Selection */}
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setType('expense')}
-                    className={`flex-1 px-4 py-3 rounded-lg flex items-center justify-center gap-2 ${type === 'expense' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-700'}`}
+                    className={`p-4 rounded-lg border flex items-center justify-center gap-3 transition-all ${
+                      type === 'expense' 
+                        ? 'bg-[#ff6666]/10 border-[#ff6666]/30 text-[#ff6666]' 
+                        : 'bg-[#1a1a1a] border-[#333333] text-gray-400 hover:border-[#444444]'
+                    }`}
                   >
-                    <div className="w-6 h-6 rounded-full bg-red-200 flex items-center justify-center">
-                      <span className="text-sm">-</span>
+                    <div className={`w-8 h-8 rounded flex items-center justify-center ${
+                      type === 'expense' ? 'bg-[#ff6666]/20' : 'bg-[#222222]'
+                    }`}>
+                      <span className="text-lg">-</span>
                     </div>
-                    Expense
+                    <div className="text-left">
+                      <div className="font-medium">EXPENSE</div>
+                      <div className="text-xs text-gray-500">Money going out</div>
+                    </div>
                   </button>
+                  
                   <button
                     type="button"
                     onClick={() => setType('income')}
-                    className={`flex-1 px-4 py-3 rounded-lg flex items-center justify-center gap-2 ${type === 'income' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-700'}`}
+                    className={`p-4 rounded-lg border flex items-center justify-center gap-3 transition-all ${
+                      type === 'income' 
+                        ? 'bg-[#00ff8f]/10 border-[#00ff8f]/30 text-[#00ff8f]' 
+                        : 'bg-[#1a1a1a] border-[#333333] text-gray-400 hover:border-[#444444]'
+                    }`}
                   >
-                    <div className="w-6 h-6 rounded-full bg-green-200 flex items-center justify-center">
-                      <span className="text-sm">+</span>
+                    <div className={`w-8 h-8 rounded flex items-center justify-center ${
+                      type === 'income' ? 'bg-[#00ff8f]/20' : 'bg-[#222222]'
+                    }`}>
+                      <span className="text-lg">+</span>
                     </div>
-                    Income
+                    <div className="text-left">
+                      <div className="font-medium">INCOME</div>
+                      <div className="text-xs text-gray-500">Money coming in</div>
+                    </div>
                   </button>
                 </div>
                 
-                {/* Amount */}
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-medium mb-2">
-                    <DollarSign className="w-4 h-4" />
-                    Amount
-                  </label>
-                  <input
-                    type="number"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="0.00"
-                    step="0.01"
-                    min="0.01"
-                    required
-                  />
-                </div>
-                
-                {/* Description */}
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-medium mb-2">
-                    <FileText className="w-4 h-4" />
-                    Description
-                  </label>
-                  <input
-                    type="text"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="What was this for?"
-                    required
-                  />
+                {/* Amount & Description */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="flex items-center gap-2 text-sm text-gray-500 mb-2">
+                      <DollarSign className="w-4 h-4" />
+                      AMOUNT
+                    </label>
+                    <div className="relative">
+                      <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</div>
+                      <input
+                        type="number"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        className="w-full pl-8 p-3 bg-[#1a1a1a] border border-[#333333] rounded-lg focus:border-[#00ff8f] focus:ring-1 focus:ring-[#00ff8f] focus:outline-none font-mono"
+                        placeholder="0.00"
+                        step="0.01"
+                        min="0.01"
+                        required
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="flex items-center gap-2 text-sm text-gray-500 mb-2">
+                      <FileText className="w-4 h-4" />
+                      DESCRIPTION
+                    </label>
+                    <input
+                      type="text"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      className="w-full p-3 bg-[#1a1a1a] border border-[#333333] rounded-lg focus:border-[#00ff8f] focus:ring-1 focus:ring-[#00ff8f] focus:outline-none"
+                      placeholder="Transaction purpose"
+                      required
+                    />
+                  </div>
                 </div>
                 
                 {/* Category & Date */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <label className="flex items-center gap-2 text-sm font-medium mb-2">
+                    <label className="flex items-center gap-2 text-sm text-gray-500 mb-2">
                       <Tag className="w-4 h-4" />
-                      Category
+                      CATEGORY
                     </label>
                     <select
                       value={category}
                       onChange={(e) => setCategory(e.target.value)}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full p-3 bg-[#1a1a1a] border border-[#333333] rounded-lg focus:border-[#00ff8f] focus:ring-1 focus:ring-[#00ff8f] focus:outline-none"
                     >
                       {filteredCategories.map((cat) => (
                         <option key={cat.id} value={cat.name}>
@@ -274,15 +387,15 @@ export default function TransactionsPage() {
                   </div>
                   
                   <div>
-                    <label className="flex items-center gap-2 text-sm font-medium mb-2">
+                    <label className="flex items-center gap-2 text-sm text-gray-500 mb-2">
                       <Calendar className="w-4 h-4" />
-                      Date
+                      DATE
                     </label>
                     <input
                       type="date"
                       value={date}
                       onChange={(e) => setDate(e.target.value)}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full p-3 bg-[#1a1a1a] border border-[#333333] rounded-lg focus:border-[#00ff8f] focus:ring-1 focus:ring-[#00ff8f] focus:outline-none font-mono"
                       required
                     />
                   </div>
@@ -291,124 +404,139 @@ export default function TransactionsPage() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-blue-600 text-white p-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-2 bg-[#00ff8f]/10 border border-[#00ff8f]/30 text-[#00ff8f] p-3 rounded-lg font-medium hover:bg-[#00ff8f]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {loading ? 'Saving...' : 'Add Transaction'}
+                  {loading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-[#00ff8f] border-t-transparent rounded-full animate-spin"></div>
+                      PROCESSING...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-5 h-5" />
+                      RECORD TRANSACTION
+                    </>
+                  )}
                 </button>
               </form>
             </div>
             
-            {/* Transaction List */}
-            <div className="bg-white rounded-xl shadow p-6">
-              <h2 className="text-xl font-semibold mb-6">Recent Transactions</h2>
-              
-              {transactions.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="text-5xl mb-4">📊</div>
-                  <p className="text-gray-500">No transactions yet</p>
-                  <p className="text-sm text-gray-400 mt-2">Add your first transaction above!</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {transactions.map((transaction) => (
-                    <div
-                      key={transaction.id}
-                      className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${transaction.type === 'income' ? 'bg-green-100' : 'bg-red-100'}`}>
-                          <span className="text-lg">
-                            {categories.find(c => c.name === transaction.category)?.emoji || '📊'}
-                          </span>
-                        </div>
-                        <div>
-                          <div className="font-medium">{transaction.description}</div>
-                          <div className="text-sm text-gray-500">
-                            {transaction.category} • {new Date(transaction.date).toLocaleDateString()}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-4">
-                        <div className={`text-lg font-bold ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                          {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
-                        </div>
-                        <button
-                          onClick={() => deleteTransaction(transaction.id)}
-                          className="text-gray-400 hover:text-red-500"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          
-          {/* Right Column - Summary */}
-          <div className="space-y-6">
-            {/* Summary Card */}
-            <div className="bg-white rounded-xl shadow p-6">
-              <h2 className="text-xl font-semibold mb-6">Monthly Summary</h2>
-              
-              <div className="space-y-6">
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <div className="text-sm text-gray-500">Total Income</div>
-                    <div className="text-2xl font-bold text-green-600">
-                      ${totalIncome.toFixed(2)}
-                    </div>
-                  </div>
-                  <div className="h-2 bg-green-100 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-green-500 rounded-full"
-                      style={{ width: `${totalIncome > 0 ? '100%' : '0%'}` }}
-                    ></div>
-                  </div>
-                </div>
-                
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <div className="text-sm text-gray-500">Total Expenses</div>
-                    <div className="text-2xl font-bold text-red-600">
-                      ${totalExpenses.toFixed(2)}
-                    </div>
-                  </div>
-                  <div className="h-2 bg-red-100 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-red-500 rounded-full"
-                      style={{ width: `${totalExpenses > 0 ? '100%' : '0%'}` }}
-                    ></div>
-                  </div>
-                </div>
-                
-                <div className="pt-6 border-t">
-                  <div className="flex justify-between items-center">
-                    <div className="text-sm text-gray-500">Net Balance</div>
-                    <div className={`text-3xl font-bold ${balance >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                      ${balance.toFixed(2)}
-                    </div>
-                  </div>
-                  <div className={`h-2 ${balance >= 0 ? 'bg-blue-100' : 'bg-red-100'} rounded-full overflow-hidden mt-2`}>
-                    <div 
-                      className={`h-full ${balance >= 0 ? 'bg-blue-500' : 'bg-red-500'} rounded-full`}
-                      style={{ width: `${Math.min(Math.abs(balance) / (totalIncome || 1) * 100, 100)}%` }}
-                    ></div>
-                  </div>
-                </div>
+            {/* Filters */}
+            <div className="flex items-center gap-3 mb-6">
+              <span className="text-sm text-gray-500">FILTER:</span>
+              <div className="flex gap-2">
+                {(['all', 'income', 'expense'] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => setActiveFilter(filter)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      activeFilter === filter
+                        ? filter === 'income' 
+                          ? 'bg-[#00ff8f]/10 text-[#00ff8f] border border-[#00ff8f]/30'
+                          : filter === 'expense'
+                          ? 'bg-[#ff6666]/10 text-[#ff6666] border border-[#ff6666]/30'
+                          : 'bg-[#66b3ff]/10 text-[#66b3ff] border border-[#66b3ff]/30'
+                        : 'bg-[#1a1a1a] text-gray-400 border border-[#333333] hover:border-[#444444]'
+                    }`}
+                  >
+                    {filter.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="text-sm text-gray-500 ml-auto font-mono">
+                {filteredTransactions.length} RECORDS
               </div>
             </div>
             
+            {/* Transaction Table */}
+            <div className="bg-[#111111] border border-[#222222] rounded-lg overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-[#222222] bg-[#0f0f0f]">
+                      <th className="text-left p-4 text-sm text-gray-500 font-medium">DATE</th>
+                      <th className="text-left p-4 text-sm text-gray-500 font-medium">DESCRIPTION</th>
+                      <th className="text-left p-4 text-sm text-gray-500 font-medium">CATEGORY</th>
+                      <th className="text-left p-4 text-sm text-gray-500 font-medium">TYPE</th>
+                      <th className="text-left p-4 text-sm text-gray-500 font-medium">AMOUNT</th>
+                      <th className="text-left p-4 text-sm text-gray-500 font-medium">ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredTransactions.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-gray-500">
+                          <div className="flex flex-col items-center">
+                            <div className="text-4xl mb-3">📊</div>
+                            <p>No transactions found</p>
+                            <p className="text-sm text-gray-400 mt-1">Add your first transaction above</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredTransactions.map((transaction) => (
+                        <tr key={transaction.id} className="border-b border-[#222222] hover:bg-[#131313] transition-colors">
+                          <td className="p-4">
+                            <div className="text-sm font-mono">{formatDate(transaction.date)}</div>
+                          </td>
+                          <td className="p-4">
+                            <div className="font-medium">{transaction.description}</div>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">{categories.find(c => c.name === transaction.category)?.emoji || '📊'}</span>
+                              <span className="text-sm">{transaction.category}</span>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${
+                              transaction.type === 'income'
+                                ? 'bg-[#00ff8f]/10 text-[#00ff8f]'
+                                : 'bg-[#ff6666]/10 text-[#ff6666]'
+                            }`}>
+                              {transaction.type === 'income' ? 'INCOME' : 'EXPENSE'}
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <div className={`text-lg font-bold font-mono ${
+                              transaction.type === 'income' ? 'text-[#00ff8f]' : 'text-[#ff6666]'
+                            }`}>
+                              {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <button
+                              onClick={() => deleteTransaction(transaction.id)}
+                              className="p-2 text-gray-400 hover:text-[#ff6666] hover:bg-[#ff6666]/10 rounded transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          
+          {/* Right Column - Analysis */}
+          <div className="space-y-6">
             {/* Category Breakdown */}
-            <div className="bg-white rounded-xl shadow p-6">
-              <h3 className="font-semibold mb-4">Category Breakdown</h3>
+            <div className="bg-[#111111] border border-[#222222] rounded-lg p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="font-bold">CATEGORY BREAKDOWN</h3>
+                <span className="text-xs text-gray-500 font-mono">TOP 5</span>
+              </div>
               
               {transactions.length === 0 ? (
-                <p className="text-gray-500 text-sm">Add transactions to see breakdown</p>
+                <div className="text-center py-6">
+                  <p className="text-gray-500 text-sm">No data available</p>
+                </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {Object.entries(
                     transactions.reduce((acc, t) => {
                       acc[t.category] = (acc[t.category] || 0) + t.amount
@@ -417,53 +545,115 @@ export default function TransactionsPage() {
                   )
                     .sort(([, a], [, b]) => b - a)
                     .slice(0, 5)
-                    .map(([cat, total]) => (
-                      <div key={cat} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">
-                            {categories.find(c => c.name === cat)?.emoji || '📊'}
-                          </span>
-                          <span className="text-sm">{cat}</span>
+                    .map(([cat, total], index) => {
+                      const percentage = (total / (totalIncome + totalExpenses)) * 100
+                      return (
+                        <div key={cat} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">
+                                {categories.find(c => c.name === cat)?.emoji || '📊'}
+                              </span>
+                              <span className="text-sm">{cat}</span>
+                            </div>
+                            <span className="text-sm font-mono">${total.toFixed(2)}</span>
+                          </div>
+                          <div className="h-1.5 bg-[#222222] rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-[#00ff8f] rounded-full"
+                              style={{ width: `${Math.min(percentage, 100)}%` }}
+                            ></div>
+                          </div>
                         </div>
-                        <span className="font-medium">${total.toFixed(2)}</span>
-                      </div>
-                    ))
+                      )
+                    })
                   }
                 </div>
               )}
             </div>
             
-            {/* Quick Stats */}
-            <div className="bg-white rounded-xl shadow p-6">
-              <h3 className="font-semibold mb-4">Quick Stats</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center p-3 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold">{transactions.length}</div>
-                  <div className="text-xs text-gray-500">Total</div>
+            {/* Monthly Trends */}
+            <div className="bg-[#111111] border border-[#222222] rounded-lg p-6">
+              <h3 className="font-bold mb-6">MONTHLY TRENDS</h3>
+              <div className="space-y-6">
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-gray-500">THIS MONTH</span>
+                    <span className={`font-mono ${balance >= 0 ? 'text-[#00ff8f]' : 'text-[#ff6666]'}`}>
+                      ${balance.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-[#222222] rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full ${balance >= 0 ? 'bg-[#00ff8f]' : 'bg-[#ff6666]'}`}
+                      style={{ width: `${Math.min(Math.abs(balance) / (totalIncome || 1) * 100, 100)}%` }}
+                    ></div>
+                  </div>
                 </div>
-                <div className="text-center p-3 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">
+                
+                <div className="pt-4 border-t border-[#222222]">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center p-3 bg-[#1a1a1a] rounded border border-[#222222]">
+                      <div className="text-xs text-gray-500 mb-1">INCOME/DAY</div>
+                      <div className="text-lg font-bold font-mono text-[#00ff8f]">
+                        ${(totalIncome / 30).toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="text-center p-3 bg-[#1a1a1a] rounded border border-[#222222]">
+                      <div className="text-xs text-gray-500 mb-1">EXPENSE/DAY</div>
+                      <div className="text-lg font-bold font-mono text-[#ff6666]">
+                        ${(totalExpenses / 30).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Quick Stats */}
+            <div className="bg-[#111111] border border-[#222222] rounded-lg p-6">
+              <h3 className="font-bold mb-6">QUICK STATS</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 bg-[#1a1a1a] rounded border border-[#222222]">
+                  <div className="text-2xl font-bold font-mono">{transactions.length}</div>
+                  <div className="text-xs text-gray-500">TOTAL TX</div>
+                </div>
+                <div className="p-3 bg-[#1a1a1a] rounded border border-[#222222]">
+                  <div className="text-2xl font-bold font-mono text-[#00ff8f]">
                     {transactions.filter(t => t.type === 'income').length}
                   </div>
-                  <div className="text-xs text-gray-500">Income</div>
+                  <div className="text-xs text-gray-500">INCOME</div>
                 </div>
-                <div className="text-center p-3 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-red-600">
+                <div className="p-3 bg-[#1a1a1a] rounded border border-[#222222]">
+                  <div className="text-2xl font-bold font-mono text-[#ff6666]">
                     {transactions.filter(t => t.type === 'expense').length}
                   </div>
-                  <div className="text-xs text-gray-500">Expenses</div>
+                  <div className="text-xs text-gray-500">EXPENSES</div>
                 </div>
-                <div className="text-center p-3 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold">
+                <div className="p-3 bg-[#1a1a1a] rounded border border-[#222222]">
+                  <div className="text-2xl font-bold font-mono text-gray-300">
                     {new Set(transactions.map(t => t.category)).size}
                   </div>
-                  <div className="text-xs text-gray-500">Categories</div>
+                  <div className="text-xs text-gray-500">CATEGORIES</div>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </main>
+
+      {/* Footer */}
+      <div className="border-t border-[#222222] mt-8 py-4">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex justify-between items-center text-xs text-gray-500">
+            <p className="font-mono">TRANSACTIONS MODULE • DATA: {new Date().getFullYear()}</p>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-[#00ff8f] rounded-full"></div>
+              <span className="font-mono">SYNC ACTIVE</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
