@@ -3,6 +3,8 @@
 import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+// Add this import at the top
+import Link from 'next/link'
 
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null)
