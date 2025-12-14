@@ -91,12 +91,14 @@ export default function Dashboard() {
             Email: {user.email}
           </p>
           
-          <div className="p-4 bg-blue-50 rounded-lg">
-            <h3 className="font-semibold mb-2">Next: Create transactions table</h3>
-            <p className="text-sm text-blue-800">
-              Now you can create a transactions table in Supabase that links to user_id
-            </p>
-          </div>
+          // In app/dashboard/page.tsx, add link:
+          <Link href="/transactions" className="block">
+            <div className="bg-white p-6 rounded-xl shadow hover:shadow-lg transition-shadow">
+              <div className="text-3xl mb-4">📝</div>
+              <h3 className="font-semibold text-lg mb-2">Add Transactions</h3>
+              <p className="text-gray-600">Track income and expenses</p>
+            </div>
+          </Link>
         </div>
       </div>
     </div>
