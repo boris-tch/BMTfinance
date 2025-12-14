@@ -14,7 +14,11 @@ import {
   Trash2,
   Plus,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  Upload,
+  Loader2,
+  Check,
+  AlertTriangle
 } from 'lucide-react'
 
 type Transaction = {
@@ -34,6 +38,14 @@ type Category = {
   type: 'income' | 'expense' | 'both'
 }
 
+type CSVRow = {
+  Date: string
+  Type: string
+  'Merchant/Description': string
+  'Debit/Credit': string
+  Balance: string
+}
+
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -45,6 +57,18 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [activeFilter, setActiveFilter] = useState<'all' | 'income' | 'expense'>('all')
+  const [csvImport, setCsvImport] = useState({
+    isOpen: false,
+    isProcessing: false,
+    file: null as File | null,
+    preview: [] as CSVRow[],
+    stats: {
+      total: 0,
+      success: 0,
+      failed: 0,
+      duplicates: 0
+    }
+  })
   
   const supabase = createClient()
   const router = useRouter()
@@ -157,6 +181,156 @@ export default function TransactionsPage() {
     }
   }
 
+  // CSV Import Functions
+  const parseCSV = (text: string): CSVRow[] => {
+    const lines = text.split('\n')
+    const headers = lines[0].split(';').map(h => h.trim())
+    
+    // Remove empty lines and footer lines
+    const dataLines = lines.slice(1).filter(line => 
+      line.trim() && 
+      !line.includes('Arranged overdraft limit') &&
+      line.split(';').length >= headers.length
+    )
+    
+    return dataLines.map(line => {
+      const values = line.split(';').map(v => v.trim())
+      const row: any = {}
+      headers.forEach((header, index) => {
+        if (values[index]) {
+          row[header] = values[index]
+        }
+      })
+      return row
+    })
+  }
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const text = await file.text()
+    const rows = parseCSV(text)
+    
+    // Preview first 5 rows
+    setCsvImport(prev => ({
+      ...prev,
+      file,
+      preview: rows.slice(0, 5),
+      stats: { ...prev.stats, total: rows.length }
+    }))
+  }
+
+  const processCSVImport = async () => {
+    if (!csvImport.file) return
+    
+    setCsvImport(prev => ({ ...prev, isProcessing: true }))
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user) {
+      router.push('/')
+      return
+    }
+    
+    const text = await csvImport.file.text()
+    const rows = parseCSV(text)
+    const stats = { total: rows.length, success: 0, failed: 0, duplicates: 0 }
+    
+    for (const row of rows) {
+      try {
+        // Parse amount - remove currency symbol and convert to positive number
+        let amountStr = row['Debit/Credit'] || ''
+        const isExpense = amountStr.includes('-')
+        const amount = Math.abs(parseFloat(amountStr.replace(/[^0-9.-]/g, '')))
+        
+        if (isNaN(amount) || amount <= 0) {
+          stats.failed++
+          continue
+        }
+        
+        // Parse date (DD/MM/YYYY to YYYY-MM-DD)
+        const [day, month, year] = row.Date.split('/')
+        const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+        
+        // Determine transaction type based on amount sign
+        const type = isExpense ? 'expense' : 'income'
+        
+        // Determine category based on description
+        const description = row['Merchant/Description'] || row.Type || 'Unknown'
+        let category = 'Other'
+        
+        // Map bank transaction types to categories
+        if (row.Type?.includes('PAYMENT')) {
+          category = isExpense ? 'Shopping' : 'Other Income'
+        } else if (row.Type?.includes('INTEREST')) {
+          category = 'Investments'
+        } else if (row.Type?.includes('TRANSFER')) {
+          category = 'Transfer'
+        } else if (row.Type?.includes('PAYMENTS')) {
+          category = 'Bills'
+        } else if (description.toLowerCase().includes('grocery') || 
+                   description.toLowerCase().includes('food')) {
+          category = 'Food'
+        } else if (description.toLowerCase().includes('uber') || 
+                   description.toLowerCase().includes('transport')) {
+          category = 'Transport'
+        }
+        
+        // Check for duplicates (same date, amount, and description)
+        const { data: existing } = await supabase
+          .from('transactions')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('date', date)
+          .eq('amount', amount)
+          .eq('description', description)
+          .single()
+        
+        if (existing) {
+          stats.duplicates++
+          continue
+        }
+        
+        // Insert transaction
+        const { error } = await supabase
+          .from('transactions')
+          .insert({
+            user_id: user.id,
+            amount,
+            description,
+            category,
+            type,
+            date
+          })
+        
+        if (error) {
+          console.error('Error importing transaction:', error)
+          stats.failed++
+        } else {
+          stats.success++
+        }
+        
+      } catch (error) {
+        console.error('Error processing row:', error)
+        stats.failed++
+      }
+    }
+    
+    // Update stats and close modal
+    setCsvImport(prev => ({ 
+      ...prev, 
+      isProcessing: false, 
+      stats,
+      isOpen: false 
+    }))
+    
+    // Reload transactions
+    await loadTransactions()
+    
+    // Show import summary
+    setMessage(`IMPORT COMPLETE: ${stats.success} imported, ${stats.failed} failed, ${stats.duplicates} duplicates skipped`)
+  }
+
   // Calculate totals
   const filteredTransactions = transactions.filter(t => 
     activeFilter === 'all' || t.type === activeFilter
@@ -183,8 +357,153 @@ export default function TransactionsPage() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(amount)
+  }
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-gray-100">
+      {/* CSV Import Modal */}
+      {csvImport.isOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111111] border border-[#222222] rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-bold">Import CSV Transactions</h3>
+                <button
+                  onClick={() => setCsvImport(prev => ({ ...prev, isOpen: false }))}
+                  className="text-gray-400 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              {!csvImport.file ? (
+                <div className="border-2 border-dashed border-[#333333] rounded-lg p-8 text-center">
+                  <Upload className="w-12 h-12 text-gray-500 mx-auto mb-4" />
+                  <label className="cursor-pointer">
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <div className="px-6 py-3 bg-[#00ff8f]/10 text-[#00ff8f] rounded-lg hover:bg-[#00ff8f]/20 transition-colors inline-flex items-center gap-2">
+                      <Upload className="w-4 h-4" />
+                      Select CSV File
+                    </div>
+                  </label>
+                  <p className="text-sm text-gray-500 mt-4">
+                    Upload your bank statement CSV file (Midata format)
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="bg-[#1a1a1a] p-4 rounded-lg">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <p className="font-medium">{csvImport.file.name}</p>
+                        <p className="text-sm text-gray-500">
+                          {csvImport.stats.total} transactions found
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setCsvImport(prev => ({ ...prev, file: null, preview: [] }))}
+                        className="text-gray-400 hover:text-white text-sm"
+                      >
+                        Change file
+                      </button>
+                    </div>
+                    
+                    {/* Preview Table */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="border-b border-[#222222]">
+                          <tr>
+                            <th className="text-left p-2 text-gray-500">Date</th>
+                            <th className="text-left p-2 text-gray-500">Type</th>
+                            <th className="text-left p-2 text-gray-500">Description</th>
+                            <th className="text-left p-2 text-gray-500">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {csvImport.preview.map((row, index) => (
+                            <tr key={index} className="border-b border-[#222222] last:border-0">
+                              <td className="p-2">{row.Date}</td>
+                              <td className="p-2">{row.Type}</td>
+                              <td className="p-2 truncate max-w-[200px]" title={row['Merchant/Description']}>
+                                {row['Merchant/Description']}
+                              </td>
+                              <td className={`p-2 ${row['Debit/Credit']?.includes('-') ? 'text-[#ff6666]' : 'text-[#00ff8f]'}`}>
+                                {row['Debit/Credit']}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    
+                    {csvImport.preview.length < csvImport.stats.total && (
+                      <p className="text-xs text-gray-500 mt-2 text-center">
+                        Showing first 5 of {csvImport.stats.total} transactions
+                      </p>
+                    )}
+                  </div>
+                  
+                  {/* Import Options */}
+                  <div className="space-y-4">
+                    <div className="p-4 bg-[#1a1a1a] rounded-lg border border-[#222222]">
+                      <div className="flex items-center gap-3 mb-2">
+                        <AlertTriangle className="w-5 h-5 text-yellow-500" />
+                        <h4 className="font-medium">Import Options</h4>
+                      </div>
+                      <ul className="text-sm text-gray-400 space-y-1 ml-8">
+                        <li>• Duplicate transactions will be skipped</li>
+                        <li>• Dates will be converted to YYYY-MM-DD format</li>
+                        <li>• Categories will be auto-detected based on descriptions</li>
+                        <li>• Import may take a few moments</li>
+                      </ul>
+                    </div>
+                    
+                    <div className="flex gap-3">
+                      <button
+                        onClick={processCSVImport}
+                        disabled={csvImport.isProcessing}
+                        className="flex-1 flex items-center justify-center gap-2 bg-[#00ff8f]/10 border border-[#00ff8f]/30 text-[#00ff8f] p-3 rounded-lg font-medium hover:bg-[#00ff8f]/20 transition-colors disabled:opacity-50"
+                      >
+                        {csvImport.isProcessing ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Importing...
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-4 h-4" />
+                            Import {csvImport.stats.total} Transactions
+                          </>
+                        )}
+                      </button>
+                      
+                      <button
+                        onClick={() => setCsvImport(prev => ({ ...prev, isOpen: false }))}
+                        className="px-6 py-3 border border-[#333333] rounded-lg hover:bg-[#222222] transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Header */}
       <div className="border-b border-[#222222]">
         <div className="max-w-7xl mx-auto px-6 py-4">
@@ -208,6 +527,13 @@ export default function TransactionsPage() {
             </div>
             
             <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setCsvImport(prev => ({ ...prev, isOpen: true }))}
+                className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-[#333333] rounded-lg hover:bg-[#222222] transition-colors text-sm"
+              >
+                <Upload className="w-4 h-4" />
+                IMPORT CSV
+              </button>
               <button className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-[#333333] rounded-lg hover:bg-[#222222] transition-colors text-sm">
                 <Download className="w-4 h-4" />
                 EXPORT
@@ -226,7 +552,7 @@ export default function TransactionsPage() {
               <div className={`w-2 h-2 rounded-full ${balance >= 0 ? 'bg-[#00ff8f]' : 'bg-[#ff6666]'}`}></div>
             </div>
             <div className={`text-2xl font-bold font-mono ${balance >= 0 ? 'text-[#00ff8f]' : 'text-[#ff6666]'}`}>
-              ${balance.toFixed(2)}
+              {formatCurrency(balance)}
             </div>
           </div>
           
@@ -236,7 +562,7 @@ export default function TransactionsPage() {
               <TrendingUp className="w-4 h-4 text-[#00ff8f]" />
             </div>
             <div className="text-2xl font-bold font-mono text-[#00ff8f]">
-              ${totalIncome.toFixed(2)}
+              {formatCurrency(totalIncome)}
             </div>
           </div>
           
@@ -246,7 +572,7 @@ export default function TransactionsPage() {
               <TrendingDown className="w-4 h-4 text-[#ff6666]" />
             </div>
             <div className="text-2xl font-bold font-mono text-[#ff6666]">
-              ${totalExpenses.toFixed(2)}
+              {formatCurrency(totalExpenses)}
             </div>
           </div>
           
@@ -278,6 +604,8 @@ export default function TransactionsPage() {
                 <div className={`mb-6 p-3 rounded border text-sm font-mono ${
                   message.includes('SUCCESS') ? 'bg-[#00ff8f]/10 border-[#00ff8f]/30 text-[#00ff8f]' :
                   message.includes('ERROR') ? 'bg-[#ff6666]/10 border-[#ff6666]/30 text-[#ff6666]' :
+                  message.includes('DELETED') ? 'bg-[#ffcc00]/10 border-[#ffcc00]/30 text-[#ffcc00]' :
+                  message.includes('IMPORT') ? 'bg-[#66b3ff]/10 border-[#66b3ff]/30 text-[#66b3ff]' :
                   'bg-[#ffcc00]/10 border-[#ffcc00]/30 text-[#ffcc00]'
                 }`}>
                   {message}
@@ -408,7 +736,7 @@ export default function TransactionsPage() {
                 >
                   {loading ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-[#00ff8f] border-t-transparent rounded-full animate-spin"></div>
+                      <Loader2 className="w-4 h-4 animate-spin" />
                       PROCESSING...
                     </>
                   ) : (
@@ -469,7 +797,9 @@ export default function TransactionsPage() {
                           <div className="flex flex-col items-center">
                             <div className="text-4xl mb-3">📊</div>
                             <p>No transactions found</p>
-                            <p className="text-sm text-gray-400 mt-1">Add your first transaction above</p>
+                            <p className="text-sm text-gray-400 mt-1">
+                              Add transactions manually or import a CSV file
+                            </p>
                           </div>
                         </td>
                       </tr>
@@ -501,7 +831,7 @@ export default function TransactionsPage() {
                             <div className={`text-lg font-bold font-mono ${
                               transaction.type === 'income' ? 'text-[#00ff8f]' : 'text-[#ff6666]'
                             }`}>
-                              {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
+                              {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
                             </div>
                           </td>
                           <td className="p-4">
@@ -556,7 +886,7 @@ export default function TransactionsPage() {
                               </span>
                               <span className="text-sm">{cat}</span>
                             </div>
-                            <span className="text-sm font-mono">${total.toFixed(2)}</span>
+                            <span className="text-sm font-mono">{formatCurrency(total)}</span>
                           </div>
                           <div className="h-1.5 bg-[#222222] rounded-full overflow-hidden">
                             <div 
@@ -580,7 +910,7 @@ export default function TransactionsPage() {
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-gray-500">THIS MONTH</span>
                     <span className={`font-mono ${balance >= 0 ? 'text-[#00ff8f]' : 'text-[#ff6666]'}`}>
-                      ${balance.toFixed(2)}
+                      {formatCurrency(balance)}
                     </span>
                   </div>
                   <div className="h-2 bg-[#222222] rounded-full overflow-hidden">
@@ -596,13 +926,13 @@ export default function TransactionsPage() {
                     <div className="text-center p-3 bg-[#1a1a1a] rounded border border-[#222222]">
                       <div className="text-xs text-gray-500 mb-1">INCOME/DAY</div>
                       <div className="text-lg font-bold font-mono text-[#00ff8f]">
-                        ${(totalIncome / 30).toFixed(2)}
+                        {formatCurrency(totalIncome / 30)}
                       </div>
                     </div>
                     <div className="text-center p-3 bg-[#1a1a1a] rounded border border-[#222222]">
                       <div className="text-xs text-gray-500 mb-1">EXPENSE/DAY</div>
                       <div className="text-lg font-bold font-mono text-[#ff6666]">
-                        ${(totalExpenses / 30).toFixed(2)}
+                        {formatCurrency(totalExpenses / 30)}
                       </div>
                     </div>
                   </div>
@@ -610,31 +940,35 @@ export default function TransactionsPage() {
               </div>
             </div>
             
-            {/* Quick Stats */}
+            {/* Import Stats */}
             <div className="bg-[#111111] border border-[#222222] rounded-lg p-6">
-              <h3 className="font-bold mb-6">QUICK STATS</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <h3 className="font-bold mb-6">IMPORT STATS</h3>
+              <div className="space-y-4">
                 <div className="p-3 bg-[#1a1a1a] rounded border border-[#222222]">
-                  <div className="text-2xl font-bold font-mono">{transactions.length}</div>
-                  <div className="text-xs text-gray-500">TOTAL TX</div>
-                </div>
-                <div className="p-3 bg-[#1a1a1a] rounded border border-[#222222]">
-                  <div className="text-2xl font-bold font-mono text-[#00ff8f]">
-                    {transactions.filter(t => t.type === 'income').length}
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-gray-500">Total Transactions</span>
+                    <span className="font-mono">{transactions.length}</span>
                   </div>
-                  <div className="text-xs text-gray-500">INCOME</div>
-                </div>
-                <div className="p-3 bg-[#1a1a1a] rounded border border-[#222222]">
-                  <div className="text-2xl font-bold font-mono text-[#ff6666]">
-                    {transactions.filter(t => t.type === 'expense').length}
+                  <div className="h-1.5 bg-[#222222] rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-[#00ff8f] rounded-full"
+                      style={{ width: `${Math.min(transactions.length / 100, 100)}%` }}
+                    ></div>
                   </div>
-                  <div className="text-xs text-gray-500">EXPENSES</div>
                 </div>
-                <div className="p-3 bg-[#1a1a1a] rounded border border-[#222222]">
-                  <div className="text-2xl font-bold font-mono text-gray-300">
-                    {new Set(transactions.map(t => t.category)).size}
-                  </div>
-                  <div className="text-xs text-gray-500">CATEGORIES</div>
+                
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => setCsvImport(prev => ({ ...prev, isOpen: true }))}
+                    className="flex-1 flex items-center justify-center gap-2 bg-[#66b3ff]/10 border border-[#66b3ff]/30 text-[#66b3ff] p-2 rounded-lg hover:bg-[#66b3ff]/20 transition-colors text-sm"
+                  >
+                    <Upload className="w-3 h-3" />
+                    IMPORT CSV
+                  </button>
+                  <button className="flex-1 flex items-center justify-center gap-2 bg-[#1a1a1a] border border-[#333333] p-2 rounded-lg hover:bg-[#222222] transition-colors text-sm">
+                    <Download className="w-3 h-3" />
+                    EXPORT DATA
+                  </button>
                 </div>
               </div>
             </div>
