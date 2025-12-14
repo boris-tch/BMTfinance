@@ -5,41 +5,87 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { 
-  Activity, 
-  TrendingUp, 
   CreditCard, 
-  PieChart,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Calendar,
   LogOut,
-  ChevronRight
+  ChevronRight,
+  Wallet,
+  PieChart
 } from 'lucide-react'
+
+type Transaction = {
+  id: string
+  amount: number
+  description: string
+  category: string
+  type: 'income' | 'expense'
+  date: string
+}
 
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null)
+  const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({
+    totalIncome: 0,
+    totalExpenses: 0,
+    balance: 0,
+    transactionCount: 0
+  })
+  
   const supabase = createClient()
   const router = useRouter()
   
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { user }, error } = await supabase.auth.getUser()
-      
-      console.log('Dashboard auth check:', { user: user?.email, error })
-      
-      setUser(user)
-      setLoading(false)
+    const loadData = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
       
       if (!user) {
-        console.log('No user, redirecting to login')
         router.push('/')
+        return
       }
+      
+      setUser(user)
+      
+      // Load real transactions
+      const { data: transactionsData, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('date', { ascending: false })
+        .limit(10)
+      
+      if (transactionsData) {
+        setTransactions(transactionsData)
+        
+        // Calculate real stats
+        const totalIncome = transactionsData
+          .filter((t: Transaction) => t.type === 'income')
+          .reduce((sum: number, t: Transaction) => sum + t.amount, 0)
+          
+        const totalExpenses = transactionsData
+          .filter((t: Transaction) => t.type === 'expense')
+          .reduce((sum: number, t: Transaction) => sum + t.amount, 0)
+          
+        setStats({
+          totalIncome,
+          totalExpenses,
+          balance: totalIncome - totalExpenses,
+          transactionCount: transactionsData.length
+        })
+      }
+      
+      setLoading(false)
     }
     
-    checkAuth()
+    loadData()
     
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        console.log('Auth state change:', event)
         if (event === 'SIGNED_IN') {
           setUser(session?.user)
         } else if (event === 'SIGNED_OUT') {
@@ -59,14 +105,14 @@ export default function Dashboard() {
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-[#00ff8f] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400 text-sm font-mono tracking-wider">LOADING TERMINAL...</p>
+          <p className="text-gray-400 text-sm">Loading your finances...</p>
         </div>
       </div>
     )
   }
   
   if (!user) {
-    return null // Will redirect via useEffect
+    return null
   }
   
   const handleLogout = async () => {
@@ -74,21 +120,20 @@ export default function Dashboard() {
     router.push('/')
   }
   
-  // Mock data for demo
-  const metrics = [
-    { label: 'NET WORTH', value: '$45,289.42', change: '+2.4%', icon: <Activity className="w-4 h-4" />, color: 'text-[#00ff8f]' },
-    { label: 'MONTHLY SPEND', value: '$3,842.16', change: '-1.2%', icon: <CreditCard className="w-4 h-4" />, color: 'text-[#66b3ff]' },
-    { label: 'INVESTMENTS', value: '$18,500.00', change: '+5.7%', icon: <TrendingUp className="w-4 h-4" />, color: 'text-[#ffcc00]' },
-    { label: 'SAVINGS RATE', value: '24.3%', change: '+0.8%', icon: <PieChart className="w-4 h-4" />, color: 'text-[#cc66ff]' },
-  ]
-
-  const recentTransactions = [
-    { id: 1, name: 'AWS Services', amount: '$89.50', type: 'expense', category: 'Tech', time: '2h ago' },
-    { id: 2, name: 'Freelance Payment', amount: '$1,200.00', type: 'income', category: 'Work', time: '5h ago' },
-    { id: 3, name: 'Grocery Store', amount: '$68.30', type: 'expense', category: 'Food', time: '1d ago' },
-    { id: 4, name: 'Stock Dividend', amount: '$42.15', type: 'income', category: 'Investing', time: '2d ago' },
-  ]
-
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(amount)
+  }
+  
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+  
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-gray-100">
       {/* Top Navigation */}
@@ -99,14 +144,14 @@ export default function Dashboard() {
               <div className="w-8 h-8 bg-[#00ff8f] rounded-md"></div>
               <div>
                 <h1 className="text-lg font-bold tracking-tight">BMT FINANCE</h1>
-                <p className="text-xs text-gray-500 font-mono">TERMINAL SESSION ACTIVE</p>
+                <p className="text-xs text-gray-500">Personal Financial Dashboard</p>
               </div>
             </div>
             
             <div className="flex items-center gap-6">
               <div className="text-right">
-                <p className="text-sm text-gray-400">USER</p>
-                <p className="text-sm font-mono">{user.email?.split('@')[0]}</p>
+                <p className="text-sm text-gray-400">Welcome back</p>
+                <p className="text-sm">{user.email?.split('@')[0]}</p>
               </div>
               <div className="h-8 w-px bg-[#222222]"></div>
               <button
@@ -114,7 +159,7 @@ export default function Dashboard() {
                 className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-[#333333] rounded-lg hover:bg-[#222222] transition-colors"
               >
                 <LogOut className="w-4 h-4" />
-                <span className="text-sm">LOGOUT</span>
+                <span className="text-sm">Logout</span>
               </button>
             </div>
           </div>
@@ -124,153 +169,271 @@ export default function Dashboard() {
       <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Welcome Header */}
         <div className="mb-8">
-          <h2 className="text-2xl font-bold mb-2">TERMINAL DASHBOARD</h2>
-          <p className="text-gray-500 text-sm font-mono">SYSTEM TIME: {new Date().toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</p>
+          <h2 className="text-2xl font-bold mb-2">Financial Overview</h2>
+          <p className="text-gray-500 text-sm">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
         </div>
 
-        {/* Metrics Grid */}
+        {/* Financial Summary Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {metrics.map((metric, index) => (
-            <div key={index} className="bg-[#111111] border border-[#222222] rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="text-gray-500">{metric.icon}</div>
-                  <span className="text-xs text-gray-500 tracking-wider">{metric.label}</span>
-                </div>
-                <span className={`text-xs font-mono ${metric.change.startsWith('+') ? 'text-[#00ff8f]' : 'text-[#ff6666]'}`}>
-                  {metric.change}
-                </span>
+          <div className="bg-[#111111] border border-[#222222] rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-gray-500" />
+                <span className="text-sm text-gray-500">Balance</span>
               </div>
-              <div className={`text-2xl font-bold font-mono ${metric.color}`}>
-                {metric.value}
+              <div className={`w-2 h-2 rounded-full ${stats.balance >= 0 ? 'bg-[#00ff8f]' : 'bg-[#ff6666]'}`}></div>
+            </div>
+            <div className={`text-2xl font-bold ${stats.balance >= 0 ? 'text-[#00ff8f]' : 'text-[#ff6666]'}`}>
+              {formatCurrency(stats.balance)}
+            </div>
+          </div>
+          
+          <div className="bg-[#111111] border border-[#222222] rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-gray-500" />
+                <span className="text-sm text-gray-500">Income</span>
               </div>
             </div>
-          ))}
+            <div className="text-2xl font-bold text-[#00ff8f]">
+              {formatCurrency(stats.totalIncome)}
+            </div>
+          </div>
+          
+          <div className="bg-[#111111] border border-[#222222] rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <TrendingDown className="w-4 h-4 text-gray-500" />
+                <span className="text-sm text-gray-500">Expenses</span>
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-[#ff6666]">
+              {formatCurrency(stats.totalExpenses)}
+            </div>
+          </div>
+          
+          <div className="bg-[#111111] border border-[#222222] rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-gray-500" />
+                <span className="text-sm text-gray-500">Transactions</span>
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-gray-300">
+              {stats.transactionCount}
+            </div>
+          </div>
         </div>
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Modules */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Transactions Module */}
+          {/* Left Column - Transactions */}
+          <div className="lg:col-span-2">
             <Link href="/transactions">
-              <div className="bg-[#111111] border border-[#222222] rounded-lg p-5 hover:border-[#333333] hover:bg-[#131313] transition-all cursor-pointer">
+              <div className="bg-[#111111] border border-[#222222] rounded-lg p-5 hover:border-[#333333] hover:bg-[#131313] transition-all cursor-pointer mb-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-[#1a1a1a] border border-[#222222] rounded-lg flex items-center justify-center">
                       <CreditCard className="w-5 h-5 text-[#66b3ff]" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-lg">TRANSACTIONS</h3>
-                      <p className="text-sm text-gray-500">Record & analyze financial activity</p>
+                      <h3 className="font-semibold text-lg">Transaction Manager</h3>
+                      <p className="text-sm text-gray-500">Add, edit, and track your finances</p>
                     </div>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-500" />
                 </div>
-                <div className="space-y-3">
-                  {recentTransactions.map((tx) => (
-                    <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[#222222] last:border-0">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-6 h-6 rounded flex items-center justify-center ${tx.type === 'income' ? 'bg-[#00ff8f]/10' : 'bg-[#ff6666]/10'}`}>
-                          <span className={`text-xs ${tx.type === 'income' ? 'text-[#00ff8f]' : 'text-[#ff6666]'}`}>
-                            {tx.type === 'income' ? '↑' : '↓'}
-                          </span>
+                
+                {transactions.length === 0 ? (
+                  <div className="text-center py-8 border-t border-[#222222]">
+                    <div className="text-4xl mb-3">📊</div>
+                    <p className="text-gray-500">No transactions yet</p>
+                    <p className="text-sm text-gray-400 mt-1">Click here to add your first transaction</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 border-t border-[#222222] pt-4">
+                    {transactions.map((tx) => (
+                      <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[#222222] last:border-0">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded flex items-center justify-center ${tx.type === 'income' ? 'bg-[#00ff8f]/10' : 'bg-[#ff6666]/10'}`}>
+                            <span className={`text-sm ${tx.type === 'income' ? 'text-[#00ff8f]' : 'text-[#ff6666]'}`}>
+                              {tx.type === 'income' ? '↑' : '↓'}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="text-sm">{tx.description}</p>
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                              <span>{tx.category}</span>
+                              <span>•</span>
+                              <span>{formatDate(tx.date)}</span>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm">{tx.name}</p>
-                          <p className="text-xs text-gray-500">{tx.category} • {tx.time}</p>
-                        </div>
+                        <p className={`text-sm font-medium ${tx.type === 'income' ? 'text-[#00ff8f]' : 'text-[#ff6666]'}`}>
+                          {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
+                        </p>
                       </div>
-                      <p className={`text-sm font-mono ${tx.type === 'income' ? 'text-[#00ff8f]' : 'text-[#ff6666]'}`}>
-                        {tx.type === 'income' ? '+' : '-'}{tx.amount}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                    
+                    {transactions.length >= 10 && (
+                      <div className="pt-3 text-center">
+                        <span className="text-sm text-gray-500">View all transactions →</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </Link>
 
-            {/* Coming Soon Modules */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[
-                { title: 'PORTFOLIO', desc: 'Investment tracking', icon: <TrendingUp className="w-5 h-5" />, color: 'text-[#ffcc00]' },
-                { title: 'ANALYTICS', desc: 'Advanced reporting', icon: <PieChart className="w-5 h-5" />, color: 'text-[#cc66ff]' },
-                { title: 'BUDGETS', desc: 'Spending limits', icon: <Activity className="w-5 h-5" />, color: 'text-[#00ff8f]' },
-                { title: 'BILLS', desc: 'Recurring payments', icon: <CreditCard className="w-5 h-5" />, color: 'text-[#66b3ff]' },
-              ].map((module, index) => (
-                <div key={index} className="bg-[#111111] border border-[#222222] rounded-lg p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className={`${module.color}`}>
-                      {module.icon}
+            {/* Quick Add Section */}
+            <div className="bg-[#111111] border border-[#222222] rounded-lg p-5">
+              <h3 className="font-semibold text-lg mb-4">Quick Actions</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Link href="/transactions">
+                  <div className="p-4 bg-[#1a1a1a] border border-[#333333] rounded-lg hover:border-[#444444] hover:bg-[#222222] transition-colors cursor-pointer">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-8 h-8 bg-[#00ff8f]/10 rounded flex items-center justify-center">
+                        <Plus className="w-4 h-4 text-[#00ff8f]" />
+                      </div>
+                      <div>
+                        <h4 className="font-medium">Add Transaction</h4>
+                        <p className="text-xs text-gray-500">Record income or expense</p>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+                
+                <div className="p-4 bg-[#1a1a1a] border border-[#333333] rounded-lg opacity-50">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 bg-gray-800 rounded flex items-center justify-center">
+                      <PieChart className="w-4 h-4 text-gray-500" />
                     </div>
                     <div>
-                      <h4 className="font-semibold text-sm">{module.title}</h4>
-                      <p className="text-xs text-gray-500">{module.desc}</p>
+                      <h4 className="font-medium">View Reports</h4>
+                      <p className="text-xs text-gray-500">Coming soon</p>
                     </div>
                   </div>
-                  <div className="text-xs text-gray-400 font-mono bg-[#1a1a1a] px-3 py-1.5 rounded border border-[#222222]">
-                    COMING SOON
-                  </div>
                 </div>
-              ))}
+              </div>
             </div>
           </div>
 
-          {/* Right Column - System Status */}
+          {/* Right Column - Insights */}
           <div className="space-y-6">
+            {/* Monthly Overview */}
             <div className="bg-[#111111] border border-[#222222] rounded-lg p-5">
-              <h3 className="font-semibold text-lg mb-4">SESSION STATUS</h3>
+              <h3 className="font-semibold text-lg mb-4">Monthly Overview</h3>
+              
               <div className="space-y-4">
                 <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-500">USER ID</span>
-                    <span className="font-mono text-xs">{user.id.slice(0, 8)}...</span>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-gray-500">Income this month</span>
+                    <span className="text-[#00ff8f]">{formatCurrency(stats.totalIncome)}</span>
                   </div>
-                  <div className="h-1 bg-[#222222] rounded-full overflow-hidden">
-                    <div className="h-full bg-[#00ff8f] rounded-full w-3/4"></div>
-                  </div>
-                </div>
-                
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-500">DATA SYNC</span>
-                    <span className="font-mono text-xs text-[#00ff8f]">ACTIVE</span>
-                  </div>
-                  <div className="h-1 bg-[#222222] rounded-full overflow-hidden">
-                    <div className="h-full bg-[#00ff8f] rounded-full w-full"></div>
+                  <div className="h-1.5 bg-[#222222] rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-[#00ff8f] rounded-full"
+                      style={{ width: `${stats.totalIncome > 0 ? '100%' : '0%'}` }}
+                    ></div>
                   </div>
                 </div>
                 
                 <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-500">SECURITY</span>
-                    <span className="font-mono text-xs text-[#00ff8f]">VERIFIED</span>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-gray-500">Expenses this month</span>
+                    <span className="text-[#ff6666]">{formatCurrency(stats.totalExpenses)}</span>
                   </div>
-                  <div className="h-1 bg-[#222222] rounded-full overflow-hidden">
-                    <div className="h-full bg-[#00ff8f] rounded-full w-full"></div>
+                  <div className="h-1.5 bg-[#222222] rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-[#ff6666] rounded-full"
+                      style={{ width: `${stats.totalExpenses > 0 ? '100%' : '0%'}` }}
+                    ></div>
+                  </div>
+                </div>
+                
+                <div className="pt-4 border-t border-[#222222]">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500">Net flow</span>
+                    <span className={`text-lg font-bold ${stats.balance >= 0 ? 'text-[#00ff8f]' : 'text-[#ff6666]'}`}>
+                      {stats.balance >= 0 ? '+' : ''}{formatCurrency(stats.balance)}
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
 
+            {/* Spending by Category */}
             <div className="bg-[#111111] border border-[#222222] rounded-lg p-5">
-              <h3 className="font-semibold text-lg mb-4">SYSTEM INFO</h3>
+              <h3 className="font-semibold text-lg mb-4">Spending by Category</h3>
+              
+              {transactions.length === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-gray-500 text-sm">No transactions yet</p>
+                  <p className="text-xs text-gray-400 mt-1">Add transactions to see breakdown</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {Object.entries(
+                    transactions.reduce((acc: Record<string, number>, t) => {
+                      if (t.type === 'expense') {
+                        acc[t.category] = (acc[t.category] || 0) + t.amount
+                      }
+                      return acc
+                    }, {})
+                  )
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 4)
+                    .map(([cat, total]) => (
+                      <div key={cat} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded bg-[#1a1a1a] flex items-center justify-center">
+                            <span className="text-xs">💰</span>
+                          </div>
+                          <span className="text-sm">{cat}</span>
+                        </div>
+                        <span className="text-sm font-medium text-[#ff6666]">
+                          {formatCurrency(total)}
+                        </span>
+                      </div>
+                    ))
+                  }
+                  
+                  {Object.keys(
+                    transactions.reduce((acc: Record<string, number>, t) => {
+                      if (t.type === 'expense') {
+                        acc[t.category] = (acc[t.category] || 0) + t.amount
+                      }
+                      return acc
+                    }, {})
+                  ).length > 4 && (
+                    <div className="pt-2 text-center">
+                      <span className="text-xs text-gray-500">And more...</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Account Status */}
+            <div className="bg-[#111111] border border-[#222222] rounded-lg p-5">
+              <h3 className="font-semibold text-lg mb-4">Account Status</h3>
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">VERSION</span>
-                  <span className="font-mono">BMT_TERMINAL v2.1</span>
+                  <span className="text-gray-500">Data synced</span>
+                  <span className="text-[#00ff8f] flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 bg-[#00ff8f] rounded-full"></div>
+                    Active
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">API STATUS</span>
-                  <span className="font-mono text-[#00ff8f]">ONLINE</span>
+                  <span className="text-gray-500">Last updated</span>
+                  <span>Just now</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">LAST SYNC</span>
-                  <span className="font-mono">Just now</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">ENCRYPTION</span>
-                  <span className="font-mono">AES-256</span>
+                  <span className="text-gray-500">Account since</span>
+                  <span>{new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
                 </div>
               </div>
             </div>
@@ -282,10 +445,13 @@ export default function Dashboard() {
       <div className="border-t border-[#222222] mt-8 py-4">
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex justify-between items-center text-xs text-gray-500">
-            <p className="font-mono">BMT FINANCE TERMINAL © 2024</p>
-            <div className="flex items-center gap-4">
-              <span className="font-mono">LATENCY: 23ms</span>
-              <div className="w-2 h-2 bg-[#00ff8f] rounded-full"></div>
+            <div>
+              <p className="mb-1">BMT Finance • Personal Financial Manager</p>
+              <p className="text-gray-600">User ID: {user.id.slice(0, 8)}... • {user.email}</p>
+            </div>
+            <div className="text-right">
+              <p>Secure connection • Data encrypted</p>
+              <p className="text-gray-600">Last refresh: {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
             </div>
           </div>
         </div>
