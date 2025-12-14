@@ -8,12 +8,11 @@ import {
   CreditCard, 
   TrendingUp,
   TrendingDown,
-  DollarSign,
-  Calendar,
   LogOut,
   ChevronRight,
   Wallet,
-  PieChart
+  PieChart,
+  Plus  // Added this import
 } from 'lucide-react'
 
 type Transaction = {
